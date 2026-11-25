@@ -15,7 +15,8 @@ export default defineConfig({
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
-        channel: process.platform === "win32" ? "chrome" : undefined,
+        // Full Chromium renders PDFs in new headless mode; the default shell downloads them.
+        channel: process.platform === "win32" ? "chrome" : "chromium",
       },
     },
   ],
