@@ -22,6 +22,11 @@ export function daysUntil(value: string | null | undefined) {
       86400000,
   );
 }
+function getCompletionPercent(completed: number, total: number) {
+  if (total <= 0) return 0;
+  if (completed >= total) return 100;
+  return Math.max(0, Math.min(99, Math.round((completed / total) * 100)));
+}
 export function StatusBadge({ status }: { status: TenderStatus }) {
   const { t } = useWorkspace();
   const labels = {
@@ -54,9 +59,7 @@ export function Completion({
   compact?: boolean;
 }) {
   const { t, locale } = useWorkspace();
-  const percent = total
-    ? Math.min(100, Math.round((completed / total) * 100))
-    : 0;
+  const percent = getCompletionPercent(completed, total);
   return (
     <div className={`completion ${compact ? "compact" : ""}`}>
       <div className="completion-label">
@@ -177,12 +180,13 @@ export function Dashboard() {
       setSampleBusy(false);
     }
   }
+  const checklistComplete =
+    totalRequirements > 0 && completed >= totalRequirements;
+  const checklistPercent = getCompletionPercent(completed, totalRequirements);
   const metricValues = [
     tenders.length,
     upcoming.length,
-    totalRequirements
-      ? `${Math.round((completed / totalRequirements) * 100)}%`
-      : "—",
+    totalRequirements ? `${checklistPercent}%` : "—",
     criticalCount,
   ];
   const metrics = [
@@ -247,20 +251,67 @@ export function Dashboard() {
       )}
       <section className="metrics-strip" aria-label={t("dashboardEyebrow")}>
         {metrics.map((metric, index) => (
-          <div className="metric" key={metric.label}>
-            <span>{t(metric.label)}</span>
-            <strong
-              className={
-                index === 3 && criticalCount > 0 ? "critical-number" : ""
-              }
-            >
-              {loading || !available
-                ? "—"
-                : typeof metricValues[index] === "number"
-                  ? formatNumber(metricValues[index] as number, locale)
-                  : metricValues[index]}
-            </strong>
-            <small>{t(metric.note)}</small>
+          <div
+            className={`metric ${index === 2 ? "metric-readiness" : ""}`}
+            key={metric.label}
+          >
+            <span className="metric-label">{t(metric.label)}</span>
+            <div className="metric-value-row">
+              <strong
+                className={
+                  index === 3 && criticalCount > 0 ? "critical-number" : ""
+                }
+              >
+                {loading || !available
+                  ? "—"
+                  : typeof metricValues[index] === "number"
+                    ? formatNumber(metricValues[index] as number, locale)
+                    : metricValues[index]}
+              </strong>
+              {index === 2 &&
+                available &&
+                !loading &&
+                totalRequirements > 0 && (
+                  <svg
+                    className="readiness-gauge"
+                    viewBox="0 0 100 100"
+                    aria-hidden="true"
+                  >
+                    <circle className="gauge-track" cx="50" cy="50" r="40" />
+                    <circle
+                      className="gauge-value"
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      strokeDasharray={2 * Math.PI * 40}
+                      strokeDashoffset={
+                        2 * Math.PI * 40 * (1 - checklistPercent / 100)
+                      }
+                    />
+                    <path
+                      d={
+                        checklistComplete
+                          ? "m39 50 8 8 15-16"
+                          : "M40 39h20 M40 50h14 M40 61h18"
+                      }
+                      className={`gauge-check ${checklistComplete ? "is-complete" : ""}`}
+                    />
+                  </svg>
+                )}
+            </div>
+            <small>
+              {index === 2 && available && !loading && totalRequirements > 0 ? (
+                <>
+                  <bdi dir="ltr">
+                    {formatNumber(completed, locale)} /{" "}
+                    {formatNumber(totalRequirements, locale)}
+                  </bdi>{" "}
+                  {t("requirementsCompleted")}
+                </>
+              ) : (
+                t(metric.note)
+              )}
+            </small>
           </div>
         ))}
       </section>
@@ -355,7 +406,9 @@ export function Dashboard() {
                     <h4>
                       {t(
                         `emptyStep${index + 1}` as
-                          "emptyStep1" | "emptyStep2" | "emptyStep3",
+                          | "emptyStep1"
+                          | "emptyStep2"
+                          | "emptyStep3",
                       )}
                     </h4>
                     <p>

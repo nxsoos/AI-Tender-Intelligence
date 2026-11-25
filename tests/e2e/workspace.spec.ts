@@ -12,6 +12,35 @@ const en = dictionaries.en;
 const ar = dictionaries.ar;
 const tenderPath = "/tenders/" + TENDER_ID;
 
+test("the dashboard marks a checklist complete only when every requirement is complete", async ({
+  page,
+}) => {
+  const state = makeFixture();
+  state.tender.requirement_count = 200;
+  state.tender.completed_count = 199;
+  await installFixture(page, state);
+  await page.goto("/");
+  const checklistMetric = page
+    .getByRole("region", { name: en.dashboardEyebrow, exact: true })
+    .locator(".metric-readiness");
+  const tableProgress = page
+    .getByRole("table")
+    .getByRole("progressbar", { name: en.compliance, exact: true });
+  await expect(checklistMetric.locator("strong")).toHaveText("99%");
+  await expect(tableProgress).toHaveAttribute("aria-valuenow", "99");
+  await expect(checklistMetric.locator(".gauge-check.is-complete")).toHaveCount(
+    0,
+  );
+
+  state.tender.completed_count = 200;
+  await page.reload();
+  await expect(checklistMetric.locator("strong")).toHaveText("100%");
+  await expect(tableProgress).toHaveAttribute("aria-valuenow", "100");
+  await expect(checklistMetric.locator(".gauge-check.is-complete")).toHaveCount(
+    1,
+  );
+});
+
 test("dashboard distinguishes total risks from critical findings in both languages", async ({
   page,
 }) => {
@@ -145,6 +174,10 @@ test("a tender with no extracted obligations never reports 100 percent complete"
   ).toBeVisible();
   await expect(page.getByText("100%", { exact: true })).not.toBeVisible();
   await expect(page.getByRole("checkbox")).toHaveCount(0);
+  await page.goto("/");
+  await expect(page.locator(".metric-readiness strong")).toHaveText("—");
+  await expect(page.locator(".readiness-gauge")).toHaveCount(0);
+  await expect(page.getByText("100%", { exact: true })).not.toBeVisible();
 });
 
 test("unconfigured app is honest, bilingual, and serves a real sample PDF", async ({
@@ -224,6 +257,10 @@ test("checklist saves completion across reload and opens inspectable source evid
   const drawer = page.getByRole("dialog");
   await expect(drawer).toBeVisible();
   await expect(drawer.getByText(EVIDENCE_QUOTE, { exact: true })).toBeVisible();
+  await page.screenshot({
+    path: "test-results/qa-evidence-drawer.png",
+    fullPage: false,
+  });
   const popupPromise = page.waitForEvent("popup");
   await drawer.getByRole("button", { name: en.openPdf }).click();
   const pdf = await popupPromise;
@@ -264,6 +301,10 @@ test("assistant sends real requests, renders citations, and restores conversatio
     }),
   ).toBeVisible();
   expect(state.chatPosts).toBe(1);
+  await page.screenshot({
+    path: "test-results/qa-assistant.png",
+    fullPage: true,
+  });
   await page
     .getByRole("button", { name: /Page 2/ })
     .first()
@@ -383,6 +424,10 @@ test("PDF picker rejects another format and submits a valid document", async ({
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   const input = dialog.getByLabel(en.chooseFile);
+  await page.screenshot({
+    path: "test-results/qa-upload-dialog.png",
+    fullPage: false,
+  });
   await input.setInputFiles({
     name: "notes.txt",
     mimeType: "text/plain",
@@ -410,6 +455,10 @@ test("risk review distinguishes source-backed obligations from missing informati
     page.getByRole("heading", { name: "Budget not specified" }),
   ).toBeVisible();
   await expect(page.getByText(en.noSourceNote, { exact: true })).toBeVisible();
+  await page.screenshot({
+    path: "test-results/qa-risks.png",
+    fullPage: true,
+  });
   await page
     .getByRole("combobox", { name: en.allSeverities })
     .selectOption("medium");
@@ -515,6 +564,12 @@ test("dashboard and requirements have no serious automated accessibility violati
       (item) => item.impact === "serious" || item.impact === "critical",
     ),
   ).toEqual([]);
+  await page.goto(tenderPath);
+  await expect(page.getByRole("heading", { name: en.summary })).toBeVisible();
+  await page.screenshot({
+    path: "test-results/qa-overview.png",
+    fullPage: true,
+  });
   await page.goto(tenderPath + "?tab=requirements");
   await expect(page.getByRole("checkbox").first()).toBeVisible();
   results = await new AxeBuilder({ page }).analyze();
