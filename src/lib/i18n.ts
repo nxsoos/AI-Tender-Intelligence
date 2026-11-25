@@ -43,6 +43,8 @@ const en = {
   processingTitle: "Reading your tender",
   processingDescription:
     "We are connecting each requirement to its source so you can review the evidence.",
+  processingEstimate:
+    "Analysis may take about a minute. Larger documents or busy periods can take longer.",
   processingNote:
     "Keep reviewing your dashboard while this completes. Your progress is saved.",
   uploaded: "Uploaded",
@@ -299,6 +301,8 @@ const ar: Dictionary = {
   retryAnalysis: "إعادة التحليل",
   processingTitle: "جارٍ قراءة المنافسة",
   processingDescription: "نربط كل متطلب بمصدره حتى تتمكن من مراجعة الأدلة.",
+  processingEstimate:
+    "قد يستغرق التحليل نحو دقيقة. وقد تستغرق المستندات الأكبر أو فترات ازدحام الخدمة وقتًا أطول.",
   processingNote:
     "يمكنك العودة إلى لوحة المعلومات أثناء المعالجة. يُحفظ تقدمك تلقائيًا.",
   uploaded: "تم الرفع",

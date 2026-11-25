@@ -472,6 +472,7 @@ function ProcessingState({
       </span>
       <h2>{t("processingTitle")}</h2>
       <p>{t("processingDescription")}</p>
+      <p>{t("processingEstimate")}</p>
       <div className="processing-steps">
         {(["readPages", "extractRequirements", "reviewEvidence"] as const).map(
           (label, index) => (

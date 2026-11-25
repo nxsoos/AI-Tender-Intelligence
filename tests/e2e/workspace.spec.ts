@@ -12,6 +12,36 @@ const en = dictionaries.en;
 const ar = dictionaries.ar;
 const tenderPath = "/tenders/" + TENDER_ID;
 
+test("processing shows the bilingual time estimate and keeps waiting past one minute", async ({
+  page,
+}) => {
+  await page.clock.install({ time: new Date() });
+  const state = makeFixture();
+  state.tender.status = "analyzing";
+  state.tender.analysis = null;
+  state.tender.updated_at = new Date().toISOString();
+  await installFixture(page, state);
+  await page.goto(tenderPath);
+  await expect(
+    page.getByRole("heading", { name: en.processingTitle }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(en.processingEstimate, { exact: true }),
+  ).toBeVisible();
+  await page.clock.fastForward(61_000);
+  await expect(
+    page.getByText(en.processingEstimate, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: en.analysisFailedTitle }),
+  ).not.toBeVisible();
+  await page.getByRole("button", { name: en.language }).click();
+  await expect(
+    page.getByText(ar.processingEstimate, { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
+});
+
 test("untrusted tender names and assistant text render as text, never executable HTML", async ({
   page,
 }) => {

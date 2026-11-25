@@ -20,7 +20,7 @@ function documentContext(pages: DocumentPage[]) {
 }
 const TRANSIENT_STATUSES = new Set([500, 502, 503, 504]);
 const MAX_ATTEMPTS = 3;
-const REQUEST_TIMEOUT_MS = 45_000;
+const REQUEST_TIMEOUT_MS = 60_000;
 const ANALYSIS_BUDGET_MS = 90_000;
 const CHAT_BUDGET_MS = 45_000;
 

@@ -149,7 +149,7 @@ describe("Gemini transient failures", () => {
       sdk.generate.mock.calls.map(
         ([request]) => request.config.httpOptions.timeout,
       ),
-    ).toEqual([45_000, 45_000, 1_000]);
+    ).toEqual([60_000, 45_000, 1_000]);
     expect(sdk.generate.mock.calls[2][0].contents).toContain(
       "previous output failed source validation",
     );
@@ -164,6 +164,52 @@ describe("Gemini transient failures", () => {
     await vi.runAllTimersAsync();
     expect((await pending).error).toMatchObject({ code: "AI_TIMEOUT" });
     expect(sdk.generate).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows a valid analysis response after 55 seconds within a 60-second attempt", async () => {
+    sdk.generate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(() => resolve(response(review())), 55_000),
+        ),
+    );
+    const pending = settle(analyzeTender(pages));
+    await vi.advanceTimersByTimeAsync(55_000);
+    expect((await pending).error).toBeUndefined();
+    expect(sdk.generate).toHaveBeenCalledTimes(1);
+    expect(sdk.generate.mock.calls[0][0].config.httpOptions.timeout).toBe(
+      60_000,
+    );
+    expect(Date.now()).toBe(Date.parse("2026-11-25T10:00:55Z"));
+  });
+
+  it("keeps a slow-attempt retry inside the original 90-second analysis budget", async () => {
+    sdk.generate
+      .mockImplementationOnce(async () => {
+        vi.setSystemTime(Date.now() + 60_000);
+        throw providerFailure(504);
+      })
+      .mockResolvedValueOnce(response(review()));
+    const pending = settle(analyzeTender(pages));
+    await vi.runAllTimersAsync();
+    expect((await pending).error).toBeUndefined();
+    expect(
+      sdk.generate.mock.calls.map(
+        ([request]) => request.config.httpOptions.timeout,
+      ),
+    ).toEqual([60_000, 29_000]);
+  });
+
+  it("retains the 45-second request budget for chat", async () => {
+    sdk.generate.mockResolvedValueOnce(response(successfulAnswer));
+    const pending = settle(
+      answerQuestion(pages, [], "Is a bond required?", "en"),
+    );
+    await vi.runAllTimersAsync();
+    expect((await pending).error).toBeUndefined();
+    expect(sdk.generate.mock.calls[0][0].config.httpOptions.timeout).toBe(
+      45_000,
+    );
   });
 });
 
