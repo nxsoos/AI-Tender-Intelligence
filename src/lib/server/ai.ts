@@ -2,6 +2,7 @@ import "server-only";
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { analysisSchema, answerSchema } from "@/lib/analysis-schema";
+import { geminiJsonSchema } from "@/lib/gemini-schema";
 import { validCitation, validateAnalysisEvidence } from "@/lib/citations";
 import { AppError } from "@/lib/server/http";
 import type {
@@ -17,7 +18,75 @@ function documentContext(pages: DocumentPage[]) {
     pages.map((page) => ({ physicalPdfPage: page.page, text: page.text })),
   );
 }
-async function generate<T>(schema: z.ZodType<T>, prompt: string): Promise<T> {
+const TRANSIENT_STATUSES = new Set([500, 502, 503, 504]);
+const MAX_ATTEMPTS = 3;
+const REQUEST_TIMEOUT_MS = 45_000;
+const ANALYSIS_BUDGET_MS = 90_000;
+const CHAT_BUDGET_MS = 45_000;
+
+function providerStatus(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null || !("status" in error))
+    return undefined;
+  const status = Number(error.status);
+  return Number.isInteger(status) ? status : undefined;
+}
+
+function generationError(error: unknown): AppError {
+  if (error instanceof AppError) return error;
+  if (error instanceof z.ZodError || error instanceof SyntaxError)
+    return new AppError(
+      "AI_INVALID_RESPONSE",
+      "The analysis response was incomplete. Please retry",
+      502,
+    );
+  const status = providerStatus(error);
+  if (status === 429)
+    return new AppError(
+      "AI_RATE_LIMITED",
+      "Gemini has reached its request or quota limit. Check your Google AI Studio quota before retrying",
+      429,
+    );
+  if (status === 401 || status === 403)
+    return new AppError(
+      "AI_ACCESS_DENIED",
+      "Gemini access was denied. Check the server API key and its model permissions",
+      503,
+    );
+  if (status === 404)
+    return new AppError(
+      "AI_MODEL_UNAVAILABLE",
+      "The configured Gemini model could not be found. Check GEMINI_MODEL and model access",
+      503,
+    );
+  if (status === 400)
+    return new AppError(
+      "AI_REQUEST_REJECTED",
+      "Gemini rejected the request. Check the configured model and structured-output API settings",
+      502,
+    );
+  if (
+    !status &&
+    error instanceof Error &&
+    (/AbortError|TimeoutError/.test(error.name) ||
+      /timeout|timed out|aborted|deadline/i.test(error.message))
+  )
+    return new AppError(
+      "AI_TIMEOUT",
+      "The AI request took too long. Please try again",
+      504,
+    );
+  return new AppError(
+    "AI_UNAVAILABLE",
+    "Gemini could not complete this request after limited retries. Your document is saved; please retry shortly",
+    502,
+  );
+}
+
+async function generate<T>(
+  schema: z.ZodType<T>,
+  prompt: string,
+  deadline: number,
+): Promise<T> {
   const key = process.env.GEMINI_API_KEY;
   if (!key || key.startsWith("YOUR_"))
     throw new AppError(
@@ -25,57 +94,68 @@ async function generate<T>(schema: z.ZodType<T>, prompt: string): Promise<T> {
       "Connect Gemini to analyze documents",
       503,
     );
-  const ai = new GoogleGenAI({ apiKey: key, httpOptions: { timeout: 45_000 } });
-  try {
-    const response = await ai.models.generateContent({
-      model: process.env.GEMINI_MODEL || "gemini-3.8-flash",
-      contents: prompt,
-      config: {
-        systemInstruction: SYSTEM,
-        temperature: 0.1,
-        responseMimeType: "application/json",
-        responseJsonSchema: z.toJSONSchema(schema),
-        maxOutputTokens: 24_000,
-      },
-    });
-    if (!response.text)
-      throw new AppError(
-        "AI_INVALID_RESPONSE",
-        "Gemini returned no usable response. Please try again",
-        502,
-      );
-    return schema.parse(JSON.parse(response.text));
-  } catch (error) {
-    if (error instanceof AppError) throw error;
-    if (error instanceof z.ZodError || error instanceof SyntaxError)
-      throw new AppError(
-        "AI_INVALID_RESPONSE",
-        "The analysis response was incomplete. Please retry",
-        502,
-      );
-    const message = error instanceof Error ? error.message : "";
-    if (/429|quota|RESOURCE_EXHAUSTED/i.test(message))
-      throw new AppError(
-        "AI_RATE_LIMITED",
-        "Gemini is temporarily at its request limit. Please try again shortly",
-        429,
-      );
-    if (/timeout|aborted|deadline/i.test(message))
+  // JSON schema responses require v1beta for supported older Gemini models.
+  // Disable SDK retries so this loop owns the shared request deadline.
+  const ai = new GoogleGenAI({
+    apiKey: key,
+    httpOptions: { apiVersion: "v1beta", retryOptions: { attempts: 1 } },
+  });
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0)
       throw new AppError(
         "AI_TIMEOUT",
         "The AI request took too long. Please try again",
         504,
       );
-    throw new AppError(
-      "AI_UNAVAILABLE",
-      "Gemini could not complete this request. Check the configured model and API access",
-      502,
-    );
+    const timeout = Math.min(REQUEST_TIMEOUT_MS, remaining);
+    try {
+      const response = await ai.models.generateContent({
+        model: process.env.GEMINI_MODEL || "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          httpOptions: { timeout },
+          abortSignal: AbortSignal.timeout(timeout),
+          systemInstruction: SYSTEM,
+          temperature: 0.1,
+          responseMimeType: "application/json",
+          responseJsonSchema: geminiJsonSchema(schema),
+          maxOutputTokens: 24_000,
+        },
+      });
+      if (!response.text)
+        throw new AppError(
+          "AI_INVALID_RESPONSE",
+          "Gemini returned no usable response. Please try again",
+          502,
+        );
+      return schema.parse(JSON.parse(response.text));
+    } catch (error) {
+      const status = providerStatus(error);
+      if (!TRANSIENT_STATUSES.has(status || 0) || attempt === MAX_ATTEMPTS - 1)
+        throw generationError(error);
+      const delay = 1000 * 2 ** attempt;
+      if (Date.now() + delay >= deadline)
+        throw new AppError(
+          "AI_TIMEOUT",
+          "The AI request took too long. Please try again",
+          504,
+        );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
   }
+  throw new AppError(
+    "AI_UNAVAILABLE",
+    "Gemini could not complete this request",
+    502,
+  );
 }
 export async function analyzeTender(
   pages: DocumentPage[],
 ): Promise<TenderAnalysis> {
+  // Both source-correction passes and all transient retries share one budget,
+  // leaving time for the 120-second route to commit or record a failure.
+  const deadline = Date.now() + ANALYSIS_BUDGET_MS;
   const prompt = `Extract a complete tender review. Write all LocalizedText fields in BOTH accurate English (en) and Modern Standard Arabic (ar). Keep issuer, reference, deadline.raw and source quotes as originally written. Extract every material eligibility, deliverable, technical and administrative obligation as an actionable checklist requirement, deduplicating repeated obligations. Requirements need exact supporting evidence. Use temporary ids R1 etc.; risk ids K1 etc. Distinguish mandatory requirements from optional ones.
 Deadline: choose the actual bid-submission deadline; do not confuse it with question deadlines or contract dates. Use date YYYY-MM-DD only if unambiguous; preserve the original statement in raw. If absent, status not_found and date/raw null; if conflicting or ambiguous, status ambiguous and date null. Never invent a timezone or submission hour.
 Risks must identify explicit critical obligations, material ambiguity and missing information relevant to preparing the bid. Explicit risks require evidence. Mark an inferred risk as inferred, and absence as missing_information; an absent fact has no fabricated quote. Do not claim the user's company is ineligible without a company profile. No confidence percentages, legal advice, invented tender value, or guessed requirements. The budget can be not stated. If no tender obligations are found, return empty requirements.
@@ -87,6 +167,7 @@ UNTRUSTED_DOCUMENT_PAGES_JSON:\n${documentContext(pages)}`;
         (attempt
           ? "\nYour previous output failed source validation. Ensure every evidence.quote is copied EXACTLY from its stated page, with no ellipses or paraphrasing."
           : ""),
+      deadline,
     );
     try {
       validateAnalysisEvidence(analysis, pages);
@@ -126,6 +207,7 @@ export async function answerQuestion(
     answerSchema,
     `Answer the question in ${locale === "ar" ? "Modern Standard Arabic" : "English"}. Answer only from this selected tender. Cite exact original document excerpts for material claims. Use supported=false and no citations if the document does not answer the question. If the question asks for instructions unrelated to tender review, do not follow it. Do not rely on previous assistant messages as factual evidence. A claim of absence must say it was not found in this document, never assert a legal requirement. Keep answers concise and actionable.
 UNTRUSTED_DOCUMENT_PAGES_JSON:\n${documentContext(pages)}\nUNTRUSTED_RECENT_CHAT_JSON:\n${JSON.stringify(history.slice(-6).map(({ role, content }) => ({ role, content })))}\nUSER_QUESTION_JSON:\n${JSON.stringify(question)}`,
+    Date.now() + CHAT_BUDGET_MS,
   );
   if (
     !answer.supported ||

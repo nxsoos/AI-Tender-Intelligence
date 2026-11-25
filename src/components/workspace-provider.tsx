@@ -132,6 +132,18 @@ export function errorText(
       en: "Gemini is currently unavailable. Your document is saved; please retry shortly.",
       ar: "خدمة Gemini غير متاحة حاليًا. مستندك محفوظ؛ أعد المحاولة بعد قليل.",
     },
+    AI_ACCESS_DENIED: {
+      en: "Gemini rejected access. Check the API key and its project permissions, then restart the app.",
+      ar: "رفض Gemini الوصول. تحقق من مفتاح API وصلاحيات مشروعه، ثم أعد تشغيل التطبيق.",
+    },
+    AI_MODEL_UNAVAILABLE: {
+      en: "The configured Gemini model is unavailable to this API key. Check GEMINI_MODEL and restart the app.",
+      ar: "نموذج Gemini المحدد غير متاح لهذا المفتاح. تحقق من GEMINI_MODEL وأعد تشغيل التطبيق.",
+    },
+    AI_REQUEST_REJECTED: {
+      en: "Gemini rejected the analysis request. Check the configured model and API compatibility.",
+      ar: "رفض Gemini طلب التحليل. تحقق من النموذج المحدد وتوافق API.",
+    },
     UPLOAD_NOT_FOUND: {
       en: "The uploaded document could not be found. Upload the PDF again.",
       ar: "تعذر العثور على المستند المرفوع. ارفع ملف PDF مجددًا.",

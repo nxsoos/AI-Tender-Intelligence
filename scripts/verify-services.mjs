@@ -200,9 +200,9 @@ try {
   } else {
     const response = await new GoogleGenAI({
       apiKey: settings.GEMINI_API_KEY,
-      httpOptions: { timeout: 45_000 },
+      httpOptions: { apiVersion: "v1beta", timeout: 45_000 },
     }).models.generateContent({
-      model: process.env.GEMINI_MODEL || "gemini-3.8-flash",
+      model: process.env.GEMINI_MODEL || "gemini-3.5-flash",
       contents: "Return an object with ok true.",
       config: {
         responseMimeType: "application/json",

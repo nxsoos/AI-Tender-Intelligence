@@ -39,7 +39,7 @@ Open http://localhost:3000. Without service configuration the app displays an ho
    | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Browser-safe publishable API key |
    | `SUPABASE_SECRET_KEY` | Server-only privileged key; legacy `SUPABASE_SERVICE_ROLE_KEY` also accepted |
    | `GEMINI_API_KEY` | Server-only Google AI Studio API key |
-   | `GEMINI_MODEL` | Initially `gemini-3.8-flash`; use a structured-output-capable model available to your key |
+   | `GEMINI_MODEL` | Initially `gemini-3.5-flash`; use a structured-output-capable model available to your key |
 
 5. Keep the bucket **private**. The migration restricts it to PDFs up to 10 MB. A browser upload must match an owned, registered tender path; object replacement is disabled.
 6. Restart after changing environment variables. Browser-prefixed Supabase settings are embedded during build, so deployed changes require a rebuild.
@@ -64,7 +64,7 @@ npm run verify:services -- --full
 
 The full check uploads the actual sample, analyzes it through the app, checks the known deadline, saves and rereads a completed requirement, asks a cited question, and checks that a different guest cannot read the tender via the API, database or storage. Set `APP_URL` to check a deployment. Temporary users, records and objects are cleaned up. This calls Gemini and consumes its normal API quota.
 
-No credentials were available during initial development. Passing local tests does not establish that your live Supabase or Gemini account is configured; run these checks after setup.
+Passing local tests does not establish that your live Supabase or Gemini account is configured; run these checks after setup.
 
 ## Sample and demonstration
 
@@ -89,11 +89,11 @@ Suggested walkthrough: analyze the sample, inspect the bid-bond risk and its sou
 - **Guest identity:** Supabase persists a private guest session in the browser. Data survives reloads and browser reopening while that identity remains available. Clearing browser data, signing out, or changing devices loses access; cross-device account recovery is outside scope.
 - **Uploads:** register an owned reservation, upload directly to private Supabase Storage, then analyze. PDF bytes do not pass through Vercel's request-body limit. Failed browser uploads can cancel their unprocessed reservation.
 - **PDF processing:** `unpdf` extracts separate physical pages. Limits: 10 MB, 50 pages, 120,000 extracted characters. Corrupt, encrypted, textless, scan-like and oversized documents return actionable errors. Nothing is silently truncated.
-- **AI extraction:** page-labelled tender text is untrusted evidence, never instructions. Gemini produces English/Arabic narratives once, including eligibility, deliverables, technical and administrative requirements. Explicit findings, inferred risks and missing information are distinguished.
+- **AI extraction:** page-labelled tender text is untrusted evidence, never instructions. Gemini produces English/Arabic narratives once, including eligibility, deliverables, technical and administrative requirements. Explicit findings, inferred risks and missing information are distinguished. Requests explicitly use `v1beta` and a structural JSON schema; the full Zod schema still validates every response locally. This avoids provider schema-complexity limits without relaxing application validation.
 - **Citations:** page numbers and exact original quotations are checked against extracted text with Unicode/whitespace normalization. Analysis gets one source-correction attempt. Unsupported or unverified chat results become an honest inability to find evidence. A matching quotation proves source presence, not that every AI interpretation is correct.
 - **Dates:** separate bid and clarification deadlines. Missing dates display “Not found”; conflicting dates display “Needs review”. Preserve original wording and never invent a missing hour/timezone.
 - **Persistence:** PostgreSQL stores tender metadata, pages, checklist and chat. Analysis, generated requirements and ready status are committed in one transaction. A database processing lease prevents concurrent work and allows retries after 180 seconds if a request was interrupted; an old request cannot overwrite a newer lease.
-- **Execution:** analysis is awaited within a Node.js request with a 120-second route budget. Gemini calls have bounded timeouts. No fire-and-forget tasks. Authenticated data and signed URLs are uncached.
+- **Execution:** analysis is awaited within a Node.js request with a 120-second route budget. Gemini analysis shares a 90-second budget across source correction and up to three attempts for temporary server errors, with 1/2-second backoff; chat has a 45-second budget. Invalid requests, access failures, unavailable model names, and quota errors are not automatically retried. No fire-and-forget tasks. Authenticated data and signed URLs are uncached.
 - **Usage bounds:** 25 tender reservations per guest, 100 AI calls daily, at least three seconds between AI calls, and 50 questions per tender. The AI budget uses database locking and is shared across server instances.
 - **Secrets:** only the Supabase URL/publishable key reach the browser. Gemini and privileged Supabase keys remain server-side. API errors do not expose raw provider responses or credentials.
 
