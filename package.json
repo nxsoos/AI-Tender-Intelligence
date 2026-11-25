@@ -1,0 +1,55 @@
+{
+  "name": "ai-tender-intelligence",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "sample": "node scripts/generate-sample.mjs",
+    "verify:services": "node scripts/verify-services.mjs"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "@google/genai": "3.6.1",
+    "@hugeicons/core-free-icons": "4.4.0",
+    "@hugeicons/react": "1.1.10",
+    "@radix-ui/react-checkbox": "1.4.1",
+    "@radix-ui/react-dialog": "1.3.1",
+    "@radix-ui/react-dropdown-menu": "2.2.1",
+    "@radix-ui/react-slot": "1.5.0",
+    "@radix-ui/react-tabs": "1.2.1",
+    "@supabase/supabase-js": "2.119.2",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "next": "16.4.6",
+    "pdf-lib": "1.17.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "server-only": "0.0.1",
+    "tailwind-merge": "3.7.1",
+    "unpdf": "2.2.2",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.1",
+    "@electric-sql/pglite": "0.6.0",
+    "@playwright/test": "1.65.1",
+    "@tailwindcss/postcss": "4.3.5",
+    "@types/node": "26.6.10",
+    "@types/react": "19.3.2",
+    "@types/react-dom": "19.3.0",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.4.6",
+    "supabase": "3.4.0",
+    "tailwindcss": "4.3.5",
+    "typescript": "6.0.3",
+    "vitest": "5.1.2"
+  }
+}
