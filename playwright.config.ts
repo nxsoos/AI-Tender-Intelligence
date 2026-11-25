@@ -20,11 +20,12 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run dev -- --hostname 127.0.0.1 --port 3100",
+    command: "node scripts/start-browser-tests.mjs",
     url: "http://127.0.0.1:3100/api/config",
     reuseExistingServer: false,
     timeout: 120_000,
     env: {
+      NEXT_TEST_DIST_DIR: "1",
       NEXT_PUBLIC_SUPABASE_URL: "https://fixture.supabase.co",
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "fixture-publishable-key",
       SUPABASE_SECRET_KEY: "",

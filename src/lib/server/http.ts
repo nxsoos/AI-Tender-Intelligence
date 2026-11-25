@@ -26,12 +26,36 @@ export async function readBody<T>(
     throw new AppError("INVALID_REQUEST", "Request is too large", 413);
   let text: string;
   try {
-    text = await request.text();
-  } catch {
+    const reader = request.body?.getReader();
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+    if (reader) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          bytes += value.byteLength;
+          if (bytes > 32_768) {
+            await reader.cancel().catch(() => undefined);
+            throw new AppError("INVALID_REQUEST", "Request is too large", 413);
+          }
+          chunks.push(value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    }
+    const buffer = new Uint8Array(bytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      buffer.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch (error) {
+    if (error instanceof AppError) throw error;
     throw new AppError("INVALID_REQUEST", "Request could not be read");
   }
-  if (text.length > 32_768)
-    throw new AppError("INVALID_REQUEST", "Request is too large", 413);
   let json: unknown;
   try {
     json = JSON.parse(text);

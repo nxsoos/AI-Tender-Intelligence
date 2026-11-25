@@ -1,5 +1,9 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
+  // The browser-test copy has its own build/cache and never shares dev locks.
+  ...(process.env.NEXT_TEST_DIST_DIR === "1"
+    ? { distDir: ".next-playwright" }
+    : {}),
   poweredByHeader: false,
   devIndicators: false,
   serverExternalPackages: ["unpdf"],

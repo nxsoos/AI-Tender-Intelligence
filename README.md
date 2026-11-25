@@ -20,7 +20,12 @@ Open http://localhost:3000. Without service configuration the app displays an ho
 ## Supabase setup
 
 1. Create a Supabase project. Under **Authentication → Providers/Sign In**, enable **Anonymous Sign-Ins**. Review anonymous-auth rate limits for the intended assessment audience.
-2. Open the SQL Editor and execute `supabase/migrations/20261125135924_tender_workspace.sql` once. It creates tables, indexes, ownership policies, atomic processing functions, and the private `tender-documents` bucket. This initial migration is for a new project; do not rerun it over an existing schema.
+2. Open the SQL Editor and execute the migration files once, in this order:
+
+   - `supabase/migrations/20261125135924_tender_workspace.sql` creates tables, indexes, ownership policies, atomic processing functions, and the private `tender-documents` bucket.
+   - `supabase/migrations/20261125150006_enforce_tender_reservation_limit.sql` makes the 25-tender limit safe against simultaneous uploads.
+
+   If you already ran the initial migration, run **only the second file**. Do not rerun the initial setup over an existing schema. The second migration must be applied before the concurrent-upload quota fix protects a hosted project.
 3. Alternatively, use the pinned CLI:
 
    ```powershell
@@ -64,6 +69,14 @@ npm run verify:services -- --full
 
 The full check uploads the actual sample, analyzes it through the app, checks the known deadline, saves and rereads a completed requirement, asks a cited question, and checks that a different guest cannot read the tender via the API, database or storage. Set `APP_URL` to check a deployment. Temporary users, records and objects are cleaned up. This calls Gemini and consumes its normal API quota.
 
+After applying the reservation-limit migration, independently verify the hosted concurrency protection without making Gemini calls:
+
+```powershell
+npm run verify:services -- --quota
+```
+
+This creates verification-only records for two temporary guests, starts eight concurrent inserts at 24 reservations, and expects exactly one acceptance and seven database rejections. It checks another guest remains independent, then removes all verification records. It does not modify existing tenders.
+
 Passing local tests does not establish that your live Supabase or Gemini account is configured; run these checks after setup.
 
 ## Sample and demonstration
@@ -94,7 +107,7 @@ Suggested walkthrough: analyze the sample, inspect the bid-bond risk and its sou
 - **Dates:** separate bid and clarification deadlines. Missing dates display “Not found”; conflicting dates display “Needs review”. Preserve original wording and never invent a missing hour/timezone.
 - **Persistence:** PostgreSQL stores tender metadata, pages, checklist and chat. Analysis, generated requirements and ready status are committed in one transaction. A database processing lease prevents concurrent work and allows retries after 180 seconds if a request was interrupted; an old request cannot overwrite a newer lease.
 - **Execution:** analysis is awaited within a Node.js request with a 120-second route budget. Gemini analysis shares a 90-second budget across source correction and up to three attempts for temporary server errors, with 1/2-second backoff; chat has a 45-second budget. Invalid requests, access failures, unavailable model names, and quota errors are not automatically retried. No fire-and-forget tasks. Authenticated data and signed URLs are uncached.
-- **Usage bounds:** 25 tender reservations per guest, 100 AI calls daily, at least three seconds between AI calls, and 50 questions per tender. The AI budget uses database locking and is shared across server instances.
+- **Usage bounds:** 25 tender reservations per guest, 100 AI calls daily, at least three seconds between AI calls, and 50 questions per tender. The AI budget uses database locking and is shared across server instances. The follow-up migration serializes tender reservations per owner so simultaneous uploads cannot bypass the cap. Dashboard checklist aggregation paginates database responses to retain accurate totals above 1,000 requirements. JSON request bodies are limited to 32 KiB of UTF-8 bytes while streaming, including requests without a length header.
 - **Secrets:** only the Supabase URL/publishable key reach the browser. Gemini and privileged Supabase keys remain server-side. API errors do not expose raw provider responses or credentials.
 
 ### API
@@ -126,6 +139,23 @@ npm run test:e2e
 
 Unit checks cover structured schemas, citations, dates, progress, real sample extraction, scanned-page rejection and unauthorized API access. Database tests execute the migration in embedded PostgreSQL with minimal Supabase schema stubs to exercise actual SQL, transactions, row security and privileges. They do not replace live Supabase Auth/Storage verification. Browser tests use deterministic API fixtures when credentials are absent; real-provider checks remain separate in `verify:services`.
 
+Browser tests run a source-only copy in ignored `.playwright-app/` on port 3100, with separate build output and fixture credentials. They do not load `.env.local` or stop your development server on port 3000. The full service check creates and removes its own temporary guests and documents; it does not edit existing tenders. It also checks forged tokens, cross-guest endpoints and child records, server-only database functions, strict request fields, private PDF access, source evidence, Arabic unsupported answers, and saved conversation history.
+
+### Checkup results — 25 November 2026
+
+| Check | Result |
+|---|---|
+| TypeScript, ESLint, production build | Passed |
+| Unit and PostgreSQL migration checks | 51 passed |
+| Chromium browser/API checks | 22 passed, including mobile RTL, error recovery, escaped hostile text, empty checklists, and automated accessibility |
+| Live Supabase/Gemini sample workflow | Passed upload, analysis, known deadline/bid-bond evidence, saved checklist/chat, and Arabic unsupported-answer behavior |
+| Live authorization/storage checks | Passed forged-token rejection, all cross-guest data endpoints, child-row isolation, private PDF access, and server-only function permissions |
+| Hosted concurrent-upload quota | Passed after the follow-up migration: eight attempts at 24 reservations accepted one and rejected seven |
+| Dependency audit | Zero known vulnerabilities reported by `npm audit` |
+| Secret exposure scan | No configured Gemini/privileged Supabase key values found in tracked files or 35 production browser assets; `.env.local` is ignored |
+
+The review found and fixed truncated dashboard totals above 1,000 requirement rows, a concurrent-upload quota race, unbounded chunked JSON buffering, and misleading guidance for a truly empty checklist. All six core assessment features are represented. The live checks removed their temporary records. Vercel deployment itself has not been tested; repeat the service check against the deployed URL. See the scope notes below for public-abuse and hostile-PDF limitations.
+
 ## Vercel deployment
 
 1. Push the source and lockfile to your GitHub repository. Keep `.env.local` ignored.
@@ -141,5 +171,7 @@ Cloning/building this repository does not create cloud resources or deploy an ap
 ## Scope and credits
 
 Selectable-text PDFs are supported. Scanned documents/OCR, complex layout reconstruction, team roles, account recovery, cross-tender chat, dark mode and vector search are outside this assessment version. Bounded complete-document context keeps questions traceable without an extra retrieval service. Larger documents should move to durable background processing.
+
+Before exposing an unrestricted public demo, configure anonymous-auth abuse protection and provider spending controls: a visitor can create another guest identity, so per-guest limits are not a global cost ceiling. PDF processing enforces byte/page/text/image bounds, but it is not isolated in a separate process with a hard CPU deadline. Use trusted assessment documents; hostile-document processing at production scale needs worker isolation. A clean dependency audit and passing tests do not guarantee the absence of vulnerabilities.
 
 The sample tender is fictional and generated for this repository. Design used UI/UX Pro Max and ui-styling guidance. Unslop is by **Damir Sokolovsky** ([@heydamir](https://x.com/heydamir)), used under **CC BY 4.0**: https://github.com/heydamir/unslop. Reference screenshots were not copied.

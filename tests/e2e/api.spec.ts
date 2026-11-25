@@ -1,6 +1,22 @@
 import { expect, test } from "@playwright/test";
 import { TENDER_ID } from "./fixtures";
 
+test("HTTP responses enforce basic browser security headers and private APIs are uncached", async ({
+  request,
+}) => {
+  const response = await request.get("/api/config");
+  expect(response.headers()["x-content-type-options"]).toBe("nosniff");
+  expect(response.headers()["x-frame-options"]).toBe("DENY");
+  expect(response.headers()["referrer-policy"]).toBe(
+    "strict-origin-when-cross-origin",
+  );
+  const privateResponse = await request.get("/api/tenders");
+  expect(privateResponse.headers()["cache-control"]).toContain("no-store");
+  expect(
+    privateResponse.headers()["access-control-allow-origin"],
+  ).toBeUndefined();
+});
+
 test("public readiness response contains flags and variable names, never credential values", async ({
   request,
 }) => {

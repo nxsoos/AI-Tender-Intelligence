@@ -21,19 +21,28 @@ export async function GET(request: Request) {
       .limit(100);
     dbError(error);
     const ids = (data || []).map((row) => row.id as string);
-    const checklist = ids.length
-      ? await db
+    const checklist: { tender_id: string; completed: boolean }[] = [];
+    // PostgREST caps each result page. A full workspace can contain 2,000
+    // requirements, so one select would silently truncate dashboard progress.
+    const pageSize = 500;
+    if (ids.length)
+      for (let offset = 0; ; offset += pageSize) {
+        const page = await db
           .from("checklist_items")
           .select("tender_id,completed")
           .eq("owner_id", userId)
           .in("tender_id", ids)
-      : { data: [], error: null };
-    dbError(checklist.error);
+          .order("id")
+          .range(offset, offset + pageSize - 1);
+        dbError(page.error);
+        checklist.push(...(page.data || []));
+        if (!page.data || page.data.length < pageSize) break;
+      }
     return json({
       tenders: (data || []).map((row) =>
         publicTender(
           row,
-          (checklist.data || []).filter((item) => item.tender_id === row.id),
+          checklist.filter((item) => item.tender_id === row.id),
         ),
       ),
     });
@@ -70,6 +79,12 @@ export async function POST(request: Request) {
       })
       .select("*")
       .single();
+    if (error?.code === "PT429")
+      throw new AppError(
+        "TENDER_LIMIT",
+        "This workspace has reached its 25-tender limit",
+        429,
+      );
     dbError(error);
     return json(
       { tender: publicTender(data), uploadPath, bucket: STORAGE_BUCKET },

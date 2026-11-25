@@ -709,62 +709,70 @@ function Requirements({
           <h2>{t("checklistTitle")}</h2>
           <p>{t("checklistDescription")}</p>
         </div>
-        <div className="checklist-summary">
-          <strong>
-            <bdi dir="ltr">
-              {formatNumber(detail.tender.completed_count, locale)}{" "}
-              <span>/ {formatNumber(detail.requirements.length, locale)}</span>
-            </bdi>
-          </strong>
-          <small>{t("completedSummary")}</small>
+        {detail.requirements.length > 0 && (
+          <div className="checklist-summary">
+            <strong>
+              <bdi dir="ltr">
+                {formatNumber(detail.tender.completed_count, locale)}{" "}
+                <span>
+                  / {formatNumber(detail.requirements.length, locale)}
+                </span>
+              </bdi>
+            </strong>
+            <small>{t("completedSummary")}</small>
+          </div>
+        )}
+      </div>
+      {detail.requirements.length > 0 && (
+        <div className="checklist-progress">
+          <Completion
+            completed={detail.tender.completed_count}
+            total={detail.requirements.length}
+          />
         </div>
-      </div>
-      <div className="checklist-progress">
-        <Completion
-          completed={detail.tender.completed_count}
-          total={detail.requirements.length}
-        />
-      </div>
-      <div className="requirements-toolbar">
-        <div className="filter-group">
-          <select
-            aria-label={t("allCategories")}
-            value={category}
-            onChange={(event) => setCategory(event.target.value)}
-          >
-            <option value="all">{t("allCategories")}</option>
-            {(
-              [
-                "eligibility",
-                "technical",
-                "deliverable",
-                "administrative",
-              ] as const
-            ).map((value) => (
-              <option value={value} key={value}>
-                {t(value)}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label={t("allRequirements")}
-            value={completion}
-            onChange={(event) => setCompletion(event.target.value)}
-          >
-            <option value="all">{t("allRequirements")}</option>
-            <option value="remaining">{t("remaining")}</option>
-            <option value="completed">{t("completed")}</option>
-          </select>
+      )}
+      {detail.requirements.length > 0 && (
+        <div className="requirements-toolbar">
+          <div className="filter-group">
+            <select
+              aria-label={t("allCategories")}
+              value={category}
+              onChange={(event) => setCategory(event.target.value)}
+            >
+              <option value="all">{t("allCategories")}</option>
+              {(
+                [
+                  "eligibility",
+                  "technical",
+                  "deliverable",
+                  "administrative",
+                ] as const
+              ).map((value) => (
+                <option value={value} key={value}>
+                  {t(value)}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label={t("allRequirements")}
+              value={completion}
+              onChange={(event) => setCompletion(event.target.value)}
+            >
+              <option value="all">{t("allRequirements")}</option>
+              <option value="remaining">{t("remaining")}</option>
+              <option value="completed">{t("completed")}</option>
+            </select>
+          </div>
+          <span className="autosave-note" role="status">
+            {saving.size > 0 ? (
+              <span className="spinner" />
+            ) : (
+              <Icon name="tick" size={16} />
+            )}{" "}
+            {saved ? t("savedChecklist") : t("saved")}
+          </span>
         </div>
-        <span className="autosave-note" role="status">
-          {saving.size > 0 ? (
-            <span className="spinner" />
-          ) : (
-            <Icon name="tick" size={16} />
-          )}{" "}
-          {saved ? t("savedChecklist") : t("saved")}
-        </span>
-      </div>
+      )}
       {error && (
         <p className="inline-error padded-error" role="alert">
           {error}
@@ -813,15 +821,29 @@ function Requirements({
         ) : (
           <div className="empty-search">
             <Icon name="complete" size={30} />
-            <h3>{t("checklistEmpty")}</h3>
-            <p>{t("checklistEmptyNote")}</p>
+            <h3>
+              {t(
+                detail.requirements.length
+                  ? "checklistEmpty"
+                  : "noRequirements",
+              )}
+            </h3>
+            <p>
+              {t(
+                detail.requirements.length
+                  ? "checklistEmptyNote"
+                  : "obligationNote",
+              )}
+            </p>
           </div>
         )}
       </div>
-      <div className="panel-bottom-note">
-        <Icon name="info" size={16} />
-        {t("obligationNote")}
-      </div>
+      {detail.requirements.length > 0 && (
+        <div className="panel-bottom-note">
+          <Icon name="info" size={16} />
+          {t("obligationNote")}
+        </div>
+      )}
     </section>
   );
 }

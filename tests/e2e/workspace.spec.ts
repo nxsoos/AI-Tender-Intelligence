@@ -12,6 +12,46 @@ const en = dictionaries.en;
 const ar = dictionaries.ar;
 const tenderPath = "/tenders/" + TENDER_ID;
 
+test("untrusted tender names and assistant text render as text, never executable HTML", async ({
+  page,
+}) => {
+  const state = makeFixture();
+  const payload = '<img src="x" onerror="window.__tenderXss=true">';
+  state.tender.analysis!.title.en = payload;
+  state.messages.push({
+    id: "hostile-message",
+    role: "assistant",
+    content: payload,
+    locale: "en",
+    citations: [],
+    supported: false,
+    created_at: new Date().toISOString(),
+  });
+  await installFixture(page, state);
+  await page.goto(tenderPath + "?tab=assistant");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(payload);
+  await expect(page.locator(".message-text")).toHaveText(payload);
+  expect(await page.locator('img[src="x"]').count()).toBe(0);
+  expect(await page.evaluate(() => "__tenderXss" in window)).toBe(false);
+});
+
+test("a tender with no extracted obligations never reports 100 percent complete", async ({
+  page,
+}) => {
+  const state = makeFixture();
+  state.requirements = [];
+  state.tender.analysis!.requirements = [];
+  state.tender.requirement_count = 0;
+  state.tender.completed_count = 0;
+  await installFixture(page, state);
+  await page.goto(tenderPath + "?tab=requirements");
+  await expect(
+    page.getByText(en.noRequirements, { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("100%", { exact: true })).not.toBeVisible();
+  await expect(page.getByRole("checkbox")).toHaveCount(0);
+});
+
 test("unconfigured app is honest, bilingual, and serves a real sample PDF", async ({
   page,
   request,

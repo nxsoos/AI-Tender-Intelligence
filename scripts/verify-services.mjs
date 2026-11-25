@@ -75,6 +75,7 @@ async function guest() {
   return value;
 }
 const full = process.argv.includes("--full");
+const quotaOnly = process.argv.includes("--quota");
 try {
   const schema = await admin.from("tenders").select("id").limit(1);
   check(schema.error, "Database migration check");
@@ -84,7 +85,57 @@ try {
   if (failedSession) throw failedSession.reason;
   const [first, second] = sessions.map((result) => result.value);
   console.log("PASS two independent guest sessions created");
-  if (full) {
+  if (quotaOnly) {
+    function reservation(owner) {
+      const id = crypto.randomUUID();
+      tenders.push(id);
+      return {
+        id,
+        owner_id: owner,
+        filename: "quota-verification.pdf",
+        title: "Temporary quota verification",
+        storage_path: `${owner}/${id}/document.pdf`,
+        file_size: 100,
+      };
+    }
+    check(
+      (
+        await admin
+          .from("tenders")
+          .insert(Array.from({ length: 24 }, () => reservation(first.user.id)))
+      ).error,
+      "Quota setup",
+    );
+    const attempts = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        admin.from("tenders").insert(reservation(first.user.id)).select("id"),
+      ),
+    );
+    const accepted = attempts.filter((attempt) => !attempt.error).length;
+    const blocked = attempts.filter(
+      (attempt) => attempt.error?.code === "PT429",
+    ).length;
+    if (accepted !== 1 || blocked !== 7)
+      throw new VerificationError(
+        `Concurrent quota check failed: ${accepted} accepted, ${blocked} blocked. Apply the follow-up reservation-limit migration.`,
+      );
+    const count = await admin
+      .from("tenders")
+      .select("id", { count: "exact", head: true })
+      .eq("owner_id", first.user.id);
+    check(count.error, "Quota result");
+    if (count.count !== 25)
+      throw new VerificationError(
+        "Concurrent quota check did not retain exactly 25 reservations",
+      );
+    check(
+      (await admin.from("tenders").insert(reservation(second.user.id))).error,
+      "Independent owner reservation",
+    );
+    console.log(
+      "PASS hosted quota trigger: 8 concurrent insert attempts at 24 reservations accepted exactly 1 and rejected 7; another guest remains independent",
+    );
+  } else if (full) {
     const base = process.env.APP_URL || "http://localhost:3000";
     async function api(path, method = "GET", body, token = first.token) {
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -170,6 +221,99 @@ try {
       );
     const detail = await api(`/api/tenders/${created.tender.id}`);
     const item = detail.requirements[0];
+    async function expectStatus(
+      path,
+      status,
+      token = second.token,
+      method = "GET",
+      body,
+    ) {
+      const response = await fetch(`${base}${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (response.status !== status)
+        throw new VerificationError(
+          `Security check ${method} ${path}: expected ${status}, received ${response.status}`,
+        );
+    }
+    const tenderPath = `/api/tenders/${created.tender.id}`;
+    for (const suffix of ["", "/document", "/chat"])
+      await expectStatus(`${tenderPath}${suffix}`, 404);
+    await expectStatus(`${tenderPath}/analyze`, 404, second.token, "POST");
+    await expectStatus(`${tenderPath}/chat`, 404, second.token, "POST", {
+      message: "What is required?",
+      locale: "en",
+    });
+    await expectStatus(
+      `${tenderPath}/requirements/${item.id}`,
+      404,
+      second.token,
+      "PATCH",
+      { completed: true },
+    );
+    await expectStatus(tenderPath, 404, second.token, "DELETE");
+    await expectStatus("/api/tenders", 401, "forged.invalid.token");
+    await expectStatus(
+      `${tenderPath}/requirements/${item.id}`,
+      400,
+      first.token,
+      "PATCH",
+      { completed: true, requirement: { title: "forged" } },
+    );
+    await expectStatus("/api/tenders", 400, first.token, "POST", {
+      filename: "not-a-pdf.txt",
+      fileSize: 12,
+    });
+    await expectStatus("/api/tenders", 400, first.token, "POST", {
+      filename: "oversized.pdf",
+      fileSize: 10485761,
+    });
+    for (const table of [
+      "document_pages",
+      "checklist_items",
+      "chat_messages",
+    ]) {
+      const foreignRows = await second.client
+        .from(table)
+        .select("*")
+        .eq("tender_id", created.tender.id);
+      check(foreignRows.error, "Child record RLS check");
+      if (foreignRows.data.length)
+        throw new VerificationError(`Cross-guest ${table} rows were exposed`);
+    }
+    const directRpc = await first.client.rpc("reserve_ai_call", {
+      p_owner: first.user.id,
+    });
+    if (!directRpc.error)
+      throw new VerificationError(
+        "Guest could invoke a server-only workflow function",
+      );
+    const publicPdf = await fetch(
+      `${settings.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${created.bucket}/${created.uploadPath}`,
+    );
+    if (publicPdf.ok)
+      throw new VerificationError(
+        "Private PDF was available through a public URL",
+      );
+    const signed = await api(`${tenderPath}/document`);
+    const pdfResponse = await fetch(signed.url);
+    if (
+      !pdfResponse.ok ||
+      !Buffer.from(await pdfResponse.arrayBuffer())
+        .subarray(0, 5)
+        .equals(Buffer.from("%PDF-"))
+    )
+      throw new VerificationError(
+        "Authorized document URL did not serve the original PDF",
+      );
+    console.log(
+      "PASS forged-token rejection, all cross-guest endpoints, child-row isolation, strict mutations, upload limits, private PDF and server-only RPC permissions",
+    );
     await api(
       `/api/tenders/${created.tender.id}/requirements/${item.id}`,
       "PATCH",
@@ -189,6 +333,45 @@ try {
       )
     )
       throw new VerificationError("Real answer has no supporting citations");
+    const bondAnswer = answer.messages.find((row) => row.role === "assistant");
+    if (
+      !bondAnswer.citations.some(
+        (citation) => citation.page === 2 && /1 percent/i.test(citation.quote),
+      )
+    )
+      throw new VerificationError(
+        "Sample bid-bond answer did not cite the known 1 percent requirement on page 2",
+      );
+    const unsupported = await api(
+      `/api/tenders/${created.tender.id}/chat`,
+      "POST",
+      {
+        message: "ما اسم مدير المشروع ورقم هاتفه الشخصي؟",
+        locale: "ar",
+      },
+    );
+    const arabicAnswer = unsupported.messages.find(
+      (row) => row.role === "assistant",
+    );
+    if (
+      !arabicAnswer ||
+      arabicAnswer.supported ||
+      arabicAnswer.citations.length ||
+      !/[\u0600-\u06ff]/u.test(arabicAnswer.content)
+    )
+      throw new VerificationError(
+        "An unsupported Arabic question did not receive an honest Arabic response",
+      );
+    const savedConversation = await api(
+      `/api/tenders/${created.tender.id}/chat`,
+    );
+    if (savedConversation.messages.length !== 4)
+      throw new VerificationError(
+        "Conversation history was not saved completely",
+      );
+    console.log(
+      "PASS known bid-bond evidence, Arabic unsupported-answer behavior and saved conversation",
+    );
     const wrongOwner = await fetch(`${base}/api/tenders/${created.tender.id}`, {
       headers: { Authorization: `Bearer ${second.token}` },
     });

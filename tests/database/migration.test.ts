@@ -67,6 +67,14 @@ describe("database ownership, write boundaries, and atomic persistence", () => {
       "utf8",
     );
     await db.exec(migration);
+    await db.exec(
+      readFileSync(
+        resolve(
+          "supabase/migrations/20261125150006_enforce_tender_reservation_limit.sql",
+        ),
+        "utf8",
+      ),
+    );
     await db.query("insert into auth.users(id) values ($1), ($2)", [
       OWNER,
       OTHER,
@@ -378,6 +386,47 @@ describe("database ownership, write boundaries, and atomic persistence", () => {
         )
       ).rows[0].lease_id,
     ).toBe(WRONG_LEASE);
+  });
+
+  it("enforces the reservation limit in the database across parallel callers", async () => {
+    await db.exec("reset role");
+    const owner = crypto.randomUUID();
+    await db.query("insert into auth.users(id) values ($1)", [owner]);
+    await role("service_role", owner);
+    const insert = async () => {
+      const id = crypto.randomUUID();
+      return db.query(
+        "insert into public.tenders(id,owner_id,filename,title,storage_path,file_size) values ($1,$2,'quota.pdf','Quota',$3,100)",
+        [id, owner, path(owner, id)],
+      );
+    };
+    for (let count = 0; count < 24; count++) await insert();
+    const attempts = await Promise.allSettled(
+      Array.from({ length: 8 }, insert),
+    );
+    expect(
+      attempts.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      attempts.filter((result) => result.status === "rejected"),
+    ).toHaveLength(7);
+    for (const result of attempts)
+      if (result.status === "rejected")
+        expect(result.reason.code).toBe("PT429");
+    expect(
+      (
+        await db.query<{ count: number }>(
+          "select count(*)::integer as count from public.tenders where owner_id=$1",
+          [owner],
+        )
+      ).rows[0].count,
+    ).toBe(25);
+    // PGlite queues queries on one engine; verify the migration also takes the
+    // transaction lock that serializes independent hosted PostgreSQL sessions.
+    const definition = await db.query<{ definition: string }>(
+      "select pg_get_functiondef('public.enforce_tender_reservation_limit()'::regprocedure) as definition",
+    );
+    expect(definition.rows[0].definition).toContain("pg_advisory_xact_lock");
   });
 
   it("enforces an account-wide request budget across database calls", async () => {
