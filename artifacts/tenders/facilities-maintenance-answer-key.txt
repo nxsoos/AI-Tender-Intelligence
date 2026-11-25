@@ -1,0 +1,49 @@
+FACILITIES MAINTENANCE TENDER — ANSWER KEY
+Fictional test document: facilities-maintenance-tender.pdf
+Reference: RFP-FM-2026-017
+Upload only the PDF to the dashboard. Keep this answer key outside the app.
+Page references below mean physical PDF pages, numbered 1 through 4.
+
+1. Who issued the tender and what is its reference?
+   Al Waha Municipal Facilities Authority (fictional); RFP-FM-2026-017. Page 1.
+2. What does the base contract cover, and for how long?
+   Preventive and corrective facilities maintenance at three municipal buildings for 12 months. Page 1.
+3. What is the bid submission deadline?
+   28 December 2026 at 15:00 Arabia Standard Time (UTC+03:00). Page 1.
+   10 December is the clarification deadline, not the bid deadline.
+4. How should the proposals be submitted?
+   Separate technical and financial PDFs through the fictional procurement portal, both referencing RFP-FM-2026-017. Page 1.
+5. Which qualification evidence is mandatory?
+   Valid commercial registration, current tax compliance certificate, at least five years of relevant building-maintenance experience, and supporting references. Page 2.
+6. Is public liability insurance required, and how much coverage?
+   Yes; at least SAR 2,000,000, supported by a valid certificate. Page 2.
+7. What bid bond is required and what happens if it is omitted?
+   2 percent of total proposal value, valid 120 days from the submission deadline. Omission results in disqualification. Page 2.
+   Do not reuse the first IT sample's 1 percent / 90-day answer.
+8. What maintenance response times apply?
+   Emergency: within two hours of notification. Routine: within 24 hours. Page 3.
+9. When are the kickoff meeting and mobilization plan due?
+   Within 14 calendar days of contract award. Page 3.
+10. What recurring inspections and reports are required?
+    Inspect each building monthly; one consolidated report per month, 12 reports total. Reports must be in Arabic and English. Page 3.
+11. Is ISO 9001 certification mandatory? Is additional training mandatory?
+    No. ISO 9001 is preferred, not mandatory. Additional on-site training is optional and separately priced. Page 3.
+12. What are the payment terms?
+    Monthly in arrears, within 30 days of an accepted invoice supported by the accepted monthly report. Page 4.
+13. What is the budget ceiling? Who is the project manager and what is their personal telephone number?
+    None of those details is specified. The app should acknowledge missing information and not invent a budget, person or phone number. Page 4.
+14. Can the app conclude that our company is eligible without reviewing our company documents?
+    No. Eligibility depends on the submitted company evidence; the tender alone does not establish it. Page 2.
+
+USEFUL RISKS TO EXPECT
+- Omission of the mandatory bid bond causes disqualification (Page 2).
+- Failure to meet mandatory qualification/insurance requirements needs attention (Page 2).
+- The two-hour emergency response is a service-delivery obligation (Page 3).
+- The unspecified budget requires clarification; no numerical budget can be extracted (Page 4).
+- Optional ISO certification or additional training must not become mandatory checklist obligations (Page 3).
+
+CHECKING THE DASHBOARD
+Ask the questions above in English or Arabic and inspect the cited page and original quotation.
+Exact wording and checklist grouping may vary; facts, mandatory/optional status and page evidence should agree.
+Mark a requirement complete, reload, and confirm the mark and dashboard progress remain saved.
+If an answer gives the first sample's 1 percent bid bond, the assistant is using the wrong tender context.
