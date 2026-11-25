@@ -216,7 +216,9 @@ export function TenderWorkspace({ id }: { id: string }) {
                   <span className="meta-dot" />
                   {tender?.page_count ? (
                     <span>
-                      {formatNumber(tender.page_count, locale)} {t("pages")}
+                      {locale === "ar"
+                        ? `${t("totalPages")}: ${formatNumber(tender.page_count, locale)}`
+                        : `${formatNumber(tender.page_count, locale)} ${t("pages")}`}
                     </span>
                   ) : (
                     <bdi>{tender?.filename}</bdi>

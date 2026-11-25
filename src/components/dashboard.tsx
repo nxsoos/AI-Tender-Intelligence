@@ -460,7 +460,9 @@ export function Dashboard() {
                                 ? t("today")
                                 : days === 1
                                   ? t("tomorrow")
-                                  : `${formatNumber(days, locale)} ${t("daysLeft")}`}
+                                  : locale === "ar"
+                                    ? `${t("daysLeft")}: ${formatNumber(days, locale)}`
+                                    : `${formatNumber(days, locale)} ${t("daysLeft")}`}
                           </small>
                         )}
                       </td>
@@ -473,13 +475,19 @@ export function Dashboard() {
                       </td>
                       <td data-label={t("risks")}>
                         <span
-                          className={
-                            critical > 0 ? "risk-table-count" : "text-muted"
-                          }
+                          className={`risk-table-count ${critical > 0 ? "danger-text" : "text-muted"}`}
                         >
-                          {critical > 0 && <Icon name="alert" size={15} />}{" "}
+                          {tender.risk_count > 0 && (
+                            <Icon name="alert" size={15} />
+                          )}
                           {formatNumber(tender.risk_count, locale)}
                         </span>
+                        {critical > 0 && (
+                          <small className="danger-text">
+                            {t("criticalRisks")}:{" "}
+                            {formatNumber(critical, locale)}
+                          </small>
+                        )}
                       </td>
                       <td data-label={t("status")}>
                         <StatusBadge status={tender.status} />
@@ -582,7 +590,9 @@ export function Dashboard() {
                       </strong>
                       <small>
                         {critical
-                          ? `${formatNumber(critical, locale)} ${t(critical === 1 ? "criticalFinding" : "criticalFindings")}`
+                          ? locale === "ar"
+                            ? `${t("criticalRisks")}: ${formatNumber(critical, locale)}`
+                            : `${formatNumber(critical, locale)} ${t(critical === 1 ? "criticalFinding" : "criticalFindings")}`
                           : t("approachingDeadline")}
                       </small>
                     </span>

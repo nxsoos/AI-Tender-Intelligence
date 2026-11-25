@@ -1007,7 +1007,6 @@ html[dir="rtl"] select {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: var(--danger);
 }
 .status-badge {
   display: inline-flex;

@@ -140,7 +140,7 @@ export function WorkspaceShell({
           {children}
         </main>
         <footer className="app-footer">
-          <span>AI Tender Intelligence</span>
+          <span>{t("productLong")}</span>
           <span>
             <Icon name="shield" size={14} />
             {t("guestShort")}

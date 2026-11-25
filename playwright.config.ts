@@ -21,7 +21,9 @@ export default defineConfig({
   ],
   webServer: {
     command: "node scripts/start-browser-tests.mjs",
-    url: "http://127.0.0.1:3100/api/config",
+    // Warm the dashboard route before opening a browser. The API route alone
+    // becomes ready before Next has compiled the page and its client bundles.
+    url: "http://127.0.0.1:3100/",
     reuseExistingServer: false,
     timeout: 120_000,
     env: {

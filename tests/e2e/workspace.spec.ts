@@ -12,6 +12,71 @@ const en = dictionaries.en;
 const ar = dictionaries.ar;
 const tenderPath = "/tenders/" + TENDER_ID;
 
+test("dashboard distinguishes total risks from critical findings in both languages", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  const state = makeFixture();
+  await installFixture(page, state);
+  await page.goto("/");
+  const riskCell = page.locator(".tender-table tbody tr td").nth(3);
+  await expect(riskCell.locator(".risk-table-count")).toHaveText("2", {
+    timeout: 15_000,
+  });
+
+  for (const [locale, dictionary] of [
+    ["en", en],
+    ["ar", ar],
+  ] as const) {
+    if (locale === "ar") {
+      await page.getByRole("button", { name: en.language }).click();
+      await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
+    }
+    state.tender.analysis!.risks = makeFixture().tender.analysis!.risks;
+    state.tender.risk_count = 2;
+    await page.reload();
+    await expect(riskCell.locator(".risk-table-count")).toHaveText("2");
+    await expect(riskCell.locator("svg")).toHaveCount(1);
+    await expect(
+      riskCell.getByText(`${dictionary.criticalRisks}: 1`, { exact: true }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: `test-results/qa-risk-count-${locale}-desktop.png`,
+      fullPage: true,
+    });
+    if (locale === "ar") {
+      await expect(page.locator(".attention-row small")).toHaveText(
+        `${ar.criticalRisks}: 1`,
+      );
+      await page.setViewportSize({ width: 375, height: 812 });
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth,
+        ),
+      ).toBe(true);
+      await page.screenshot({
+        path: "test-results/qa-risk-count-ar-mobile.png",
+        fullPage: true,
+      });
+      await page.setViewportSize({ width: 1280, height: 720 });
+    }
+
+    state.tender.analysis!.risks[0].severity = "high";
+    await page.reload();
+    await expect(riskCell.locator(".risk-table-count")).toHaveText("2");
+    await expect(riskCell.locator("svg")).toHaveCount(1);
+    await expect(riskCell.locator("small")).toHaveCount(0);
+    await expect(riskCell.locator(".danger-text")).toHaveCount(0);
+
+    state.tender.analysis!.risks = [];
+    state.tender.risk_count = 0;
+    await page.reload();
+    await expect(riskCell.locator(".risk-table-count")).toHaveText("0");
+    await expect(riskCell.locator("svg")).toHaveCount(0);
+    await expect(riskCell.locator("small")).toHaveCount(0);
+  }
+});
+
 test("processing shows the bilingual time estimate and keeps waiting past one minute", async ({
   page,
 }) => {
