@@ -38,17 +38,28 @@ export function TenderWorkspace({ id }: { id: string }) {
     locale,
     config,
     reload,
+    analysisRequests,
+    startAnalysis,
     loadError: workspaceLoadError,
   } = useWorkspace();
   const [detail, setDetail] = useState<TenderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [analysisBusy, setAnalysisBusy] = useState(false);
+  const [dismissedAnalysisError, setDismissedAnalysisError] =
+    useState<unknown>(null);
+  const analysisRequest = analysisRequests[id];
+  const analysisBusy =
+    !!analysisRequest?.pending ||
+    (!!analysisRequest &&
+      !analysisRequest.error &&
+      !analysisRequest.pending &&
+      detail?.tender.status !== "ready");
   const [evidence, setEvidence] = useState<Evidence | null>(null);
   const [documentBusy, setDocumentBusy] = useState(false);
   const [documentError, setDocumentError] = useState(false);
   const [leaseExpired, setLeaseExpired] = useState(false);
-  const started = useRef(false);
+  const started = useRef<string | null>(null);
+  const loadSequence = useRef(0);
   const query = useSearchParams();
   const router = useRouter();
   const queryTab = query.get("tab");
@@ -61,20 +72,35 @@ export function TenderWorkspace({ id }: { id: string }) {
   const load = useCallback(
     async (quiet = false) => {
       if (!config?.supabaseConfigured) return;
+      const sequence = ++loadSequence.current;
       try {
         const data = await authenticatedFetch<TenderDetail>(
           `/api/tenders/${id}`,
         );
+        if (sequence !== loadSequence.current) return;
         if (!quiet) setError(null);
-        setDetail(data);
+        setDetail((current) => {
+          if (
+            current &&
+            current.tender.id === data.tender.id &&
+            (Date.parse(data.tender.updated_at) <
+              Date.parse(current.tender.updated_at) ||
+              (current.tender.status === "ready" &&
+                data.tender.status !== "ready" &&
+                current.tender.updated_at === data.tender.updated_at))
+          )
+            return current;
+          return data;
+        });
         setLeaseExpired(
           activeStatuses.includes(data.tender.status) &&
             Date.now() - new Date(data.tender.updated_at).getTime() >= 180000,
         );
       } catch (issue) {
-        if (!quiet) setError(errorText(issue, locale));
+        if (sequence === loadSequence.current && !quiet)
+          setError(errorText(issue, locale));
       } finally {
-        setLoading(false);
+        if (sequence === loadSequence.current) setLoading(false);
       }
     },
     [id, config?.supabaseConfigured, locale],
@@ -83,55 +109,49 @@ export function TenderWorkspace({ id }: { id: string }) {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (config?.supabaseConfigured) void load();
-  }, [load, config?.supabaseConfigured]);
+  }, [load, config?.supabaseConfigured, analysisRequest?.pending]);
+  const persistedStatus = detail?.tender.status;
   useEffect(() => {
-    if (!detail || !activeStatuses.includes(detail.tender.status)) return;
+    if (
+      !persistedStatus ||
+      (!analysisBusy && !activeStatuses.includes(persistedStatus))
+    )
+      return;
     const timer = window.setInterval(() => {
       void load(true);
     }, 2500);
     return () => window.clearInterval(timer);
-  }, [detail?.tender.status, load, detail]);
+  }, [persistedStatus, load, analysisBusy]);
   const analyze = useCallback(async () => {
-    if (analysisBusy || !config?.aiConfigured) return;
-    setAnalysisBusy(true);
+    if (
+      !detail?.tender ||
+      detail.tender.id !== id ||
+      analysisBusy ||
+      !config?.aiConfigured
+    )
+      return;
     setError(null);
-    setDetail((current) =>
-      current
-        ? {
-            ...current,
-            tender: {
-              ...current.tender,
-              status: "extracting",
-              error_code: null,
-              error_message: null,
-            },
-          }
-        : current,
-    );
-    try {
-      await authenticatedFetch(`/api/tenders/${id}/analyze`, {
-        method: "POST",
-      });
-      await load();
-      void reload();
-    } catch (issue) {
-      setError(errorText(issue, locale, "analysisFailedDescription"));
-      await load(true);
-    } finally {
-      setAnalysisBusy(false);
-    }
-  }, [id, config?.aiConfigured, analysisBusy, load, locale, reload]);
+    await startAnalysis(detail.tender);
+  }, [detail, id, config?.aiConfigured, analysisBusy, startAnalysis]);
   useEffect(() => {
     if (
       query.get("analyze") === "1" &&
+      detail?.tender.id === id &&
       detail?.tender.status === "uploaded" &&
-      !started.current &&
+      started.current !== id &&
       config?.aiConfigured
     ) {
-      started.current = true;
+      started.current = id;
       void analyze();
     }
-  }, [query, detail?.tender.status, config?.aiConfigured, analyze]);
+  }, [
+    query,
+    id,
+    detail?.tender.id,
+    detail?.tender.status,
+    config?.aiConfigured,
+    analyze,
+  ]);
   async function openPdf() {
     setDocumentBusy(true);
     setDocumentError(false);
@@ -150,8 +170,33 @@ export function TenderWorkspace({ id }: { id: string }) {
       setDocumentBusy(false);
     }
   }
-  const tender = detail?.tender;
+  const originalTender = detail?.tender;
+  const analysisError =
+    !analysisBusy &&
+    originalTender?.status !== "ready" &&
+    analysisRequest?.error
+      ? errorText(analysisRequest.error, locale, "analysisFailedDescription")
+      : null;
+  const tender =
+    originalTender && analysisBusy && originalTender.status !== "ready"
+      ? {
+          ...originalTender,
+          status:
+            originalTender.status === "analyzing"
+              ? ("analyzing" as const)
+              : ("extracting" as const),
+        }
+      : originalTender && analysisError && originalTender.status === "uploaded"
+        ? { ...originalTender, status: "failed" as const }
+        : originalTender;
   const analysis = tender?.analysis;
+  const displayError =
+    error ||
+    (tender &&
+    activeStatuses.includes(tender.status) &&
+    analysisRequest?.error !== dismissedAnalysisError
+      ? analysisError
+      : null);
   const notConfigured = !!config && !config.supabaseConfigured;
   return (
     <WorkspaceShell tender>
@@ -237,7 +282,7 @@ export function TenderWorkspace({ id }: { id: string }) {
               </div>
             </div>
             <div className="tender-heading-actions">
-              <StatusBadge status={detail.tender.status} />
+              <StatusBadge status={tender?.status || detail.tender.status} />
               <Button
                 variant="outline"
                 onClick={() => void openPdf()}
@@ -257,57 +302,66 @@ export function TenderWorkspace({ id }: { id: string }) {
               {t("sourceUnavailable")}
             </p>
           )}
-          {error && (
+          {displayError && (
             <div className="notice notice-error" role="alert">
               <Icon name="alert" size={20} />
-              <span>{error}</span>
+              <span>{displayError}</span>
               <Button
                 variant="ghost"
                 size="icon"
                 aria-label={t("close")}
-                onClick={() => setError(null)}
+                onClick={() => {
+                  setError(null);
+                  setDismissedAnalysisError(() => analysisRequest?.error);
+                }}
               >
                 <Icon name="close" size={18} />
               </Button>
             </div>
           )}
-          {activeStatuses.includes(detail.tender.status) ? (
+          {tender && activeStatuses.includes(tender.status) ? (
             <ProcessingState
-              status={detail.tender.status}
-              interrupted={leaseExpired}
+              status={tender.status}
+              interrupted={leaseExpired && !analysisBusy}
               busy={analysisBusy}
               onRetry={() => void analyze()}
             />
-          ) : detail.tender.status === "failed" ||
+          ) : analysisError ||
+            detail.tender.status === "failed" ||
             detail.tender.status === "uploaded" ? (
             <section className="panel processing-panel">
               <span className="processing-icon">
                 <Icon
-                  name={detail.tender.status === "failed" ? "alert" : "file"}
+                  name={
+                    analysisError || detail.tender.status === "failed"
+                      ? "alert"
+                      : "file"
+                  }
                   size={32}
                 />
               </span>
               <h2>
                 {t(
-                  detail.tender.status === "failed"
+                  analysisError || detail.tender.status === "failed"
                     ? "analysisFailedTitle"
-                    : "processingTitle",
+                    : "awaitingAnalysisTitle",
                 )}
               </h2>
               <p>
                 {t(
-                  detail.tender.status === "failed"
+                  analysisError || detail.tender.status === "failed"
                     ? "analysisFailedDescription"
-                    : "noAnalysis",
+                    : "awaitingAnalysisDescription",
                 )}
               </p>
-              {detail.tender.error_code && (
+              {(analysisError || detail.tender.error_code) && (
                 <p className="processing-error" role="alert">
-                  {errorText(
-                    { code: detail.tender.error_code },
-                    locale,
-                    "analysisFailedDescription",
-                  )}
+                  {analysisError ||
+                    errorText(
+                      { code: detail.tender.error_code },
+                      locale,
+                      "analysisFailedDescription",
+                    )}
                 </p>
               )}
               <Button
@@ -315,7 +369,11 @@ export function TenderWorkspace({ id }: { id: string }) {
                 onClick={() => void analyze()}
               >
                 <Icon name="refresh" size={18} />
-                {t("retryAnalysis")}
+                {t(
+                  analysisError || detail.tender.status === "failed"
+                    ? "retryAnalysis"
+                    : "analyzeDocument",
+                )}
               </Button>
               {!config?.aiConfigured && (
                 <small>

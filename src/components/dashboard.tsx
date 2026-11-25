@@ -102,6 +102,7 @@ export function Dashboard() {
     loading,
     loadError,
     reload,
+    startAnalysis,
     setUploadOpen,
   } = useWorkspace();
   const [query, setQuery] = useState("");
@@ -172,6 +173,7 @@ export function Dashboard() {
         { type: "application/pdf" },
       );
       const tender = await uploadTender(file, setSampleStep);
+      void startAnalysis(tender);
       void reload();
       router.push(`/tenders/${tender.id}?analyze=1`);
     } catch (error) {
@@ -499,7 +501,9 @@ export function Dashboard() {
                             ? t("needsReview")
                             : tender.deadline
                               ? formatDate(tender.deadline, locale)
-                              : t("notFound")}
+                              : tender.status === "ready"
+                                ? t("notFound")
+                                : "—"}
                         </span>
                         {days !== null && days <= 7 && (
                           <small
@@ -520,20 +524,35 @@ export function Dashboard() {
                         )}
                       </td>
                       <td data-label={t("progress")}>
-                        <Completion
-                          completed={tender.completed_count}
-                          total={tender.requirement_count}
-                          compact
-                        />
+                        {tender.status === "ready" ? (
+                          <Completion
+                            completed={tender.completed_count}
+                            total={tender.requirement_count}
+                            compact
+                          />
+                        ) : (
+                          <span className="text-muted">
+                            {t(
+                              tender.status === "failed"
+                                ? "analysisIncomplete"
+                                : tender.status === "uploaded"
+                                  ? "notAnalyzed"
+                                  : "processing",
+                            )}
+                          </span>
+                        )}
                       </td>
                       <td data-label={t("risks")}>
                         <span
                           className={`risk-table-count ${critical > 0 ? "danger-text" : "text-muted"}`}
                         >
-                          {tender.risk_count > 0 && (
-                            <Icon name="alert" size={15} />
-                          )}
-                          {formatNumber(tender.risk_count, locale)}
+                          {tender.status === "ready" &&
+                            tender.risk_count > 0 && (
+                              <Icon name="alert" size={15} />
+                            )}
+                          {tender.status === "ready"
+                            ? formatNumber(tender.risk_count, locale)
+                            : "—"}
                         </span>
                         {critical > 0 && (
                           <small className="danger-text">

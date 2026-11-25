@@ -130,6 +130,9 @@ export function makeFixture() {
     failStorage: false,
     chatPosts: 0,
     analyzePosts: 0,
+    detailGets: 0,
+    analysisGate: null as Promise<void> | null,
+    analysisErrorCode: null as string | null,
     createPosts: 0,
     storagePosts: 0,
     canceledReservations: 0,
@@ -299,8 +302,36 @@ export async function installFixture(page: Page, state = makeFixture()) {
     }
     if (path.endsWith("/analyze") && method === "POST") {
       state.analyzePosts++;
+      if (state.analysisGate) await state.analysisGate;
+      if (state.analysisErrorCode) {
+        if (state.analysisErrorCode !== "RATE_LIMITED") {
+          state.tender.status = "failed";
+          state.tender.error_code = state.analysisErrorCode;
+          state.tender.updated_at = new Date().toISOString();
+        }
+        await route.fulfill({
+          status: 429,
+          json: {
+            error: {
+              code: state.analysisErrorCode,
+              message: "Provider request limit reached",
+            },
+          },
+        });
+        return;
+      }
       state.tender.status = "ready";
       state.tender.analysis = state.analysisTemplate;
+      state.tender.deadline = state.analysisTemplate.deadline.date;
+      state.tender.page_count = 4;
+      state.tender.requirement_count = state.requirements.length;
+      state.tender.completed_count = state.requirements.filter(
+        (item) => item.completed,
+      ).length;
+      state.tender.risk_count = state.analysisTemplate.risks.length;
+      state.tender.error_code = null;
+      state.tender.error_message = null;
+      state.tender.updated_at = new Date().toISOString();
       await route.fulfill({ json: { tender: state.tender } });
       return;
     }
@@ -309,6 +340,13 @@ export async function installFixture(page: Page, state = makeFixture()) {
         state.createPosts++;
         state.tender.status = "uploaded";
         state.tender.analysis = null;
+        state.tender.created_at = new Date().toISOString();
+        state.tender.updated_at = state.tender.created_at;
+        state.tender.deadline = null;
+        state.tender.page_count = null;
+        state.tender.requirement_count = 0;
+        state.tender.completed_count = 0;
+        state.tender.risk_count = 0;
         await route.fulfill({
           status: 201,
           json: {
@@ -328,6 +366,7 @@ export async function installFixture(page: Page, state = makeFixture()) {
         await route.fulfill({ json: { canceled: true } });
         return;
       }
+      state.detailGets++;
       await route.fulfill({
         json: {
           tender: state.tender,

@@ -12,6 +12,144 @@ const en = dictionaries.en;
 const ar = dictionaries.ar;
 const tenderPath = "/tenders/" + TENDER_ID;
 
+test("legacy analysis links start once and retain a pre-claim rejection across navigation", async ({
+  page,
+}) => {
+  const state = makeFixture();
+  state.tender.status = "uploaded";
+  state.tender.analysis = null;
+  state.analysisErrorCode = "RATE_LIMITED";
+  await installFixture(page, state);
+  await page.goto(tenderPath + "?analyze=1");
+  await expect(
+    page.getByRole("heading", { name: en.analysisFailedTitle }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".processing-panel").getByRole("alert"),
+  ).toContainText("Please wait");
+  expect(state.analyzePosts).toBe(1);
+  await page.getByRole("link", { name: en.backDashboard }).click();
+  await expect(page.getByRole("table")).toContainText(en.failed);
+  await expect(page.getByRole("table")).not.toContainText(en.noRequirements);
+  await page
+    .getByRole("table")
+    .getByRole("link", {
+      name: "Municipal digital services platform",
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: en.analysisFailedTitle }),
+  ).toBeVisible();
+  expect(state.analyzePosts).toBe(1);
+  state.analysisErrorCode = null;
+  await page.getByRole("button", { name: en.retryAnalysis }).click();
+  await expect(page.getByRole("heading", { name: en.summary })).toBeVisible();
+  expect(state.analyzePosts).toBe(2);
+});
+
+test("sample analysis survives uploaded snapshots and navigation without duplicate requests", async ({
+  page,
+}) => {
+  const state = makeFixture();
+  let finish!: () => void;
+  state.analysisGate = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  await installFixture(page, state);
+  await page.goto("/");
+  await page.getByRole("button", { name: en.useSample }).click();
+  await expect.poll(() => state.analyzePosts).toBe(1);
+  await expect(
+    page.getByText(en.processingEstimate, { exact: true }),
+  ).toBeVisible();
+  // Multiple authoritative reads still say Uploaded until the server accepts
+  // the request. They must not stop the spinner or expose a disabled Retry.
+  await expect
+    .poll(() => state.detailGets, { timeout: 10000 })
+    .toBeGreaterThan(1);
+  await expect(
+    page.getByText(en.processingEstimate, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: en.retryAnalysis }),
+  ).toHaveCount(0);
+  await expect(page.locator(".tender-heading-actions")).toContainText(
+    en.extracting,
+  );
+  await page.getByRole("link", { name: en.backDashboard }).click();
+  await expect(page.getByRole("table")).toContainText(en.extracting);
+  await expect(page.getByRole("table")).not.toContainText(en.noRequirements);
+  state.tender.status = "analyzing";
+  state.tender.updated_at = new Date().toISOString();
+  await expect(page.getByRole("table")).toContainText(en.analyzing, {
+    timeout: 10000,
+  });
+  await page
+    .getByRole("table")
+    .getByRole("link", {
+      name: "Municipal digital services platform",
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByText(en.processingEstimate, { exact: true }),
+  ).toBeVisible();
+  expect(state.analyzePosts).toBe(1);
+  await page.getByRole("button", { name: en.language }).click();
+  await expect(
+    page.getByText(ar.processingEstimate, { exact: true }),
+  ).toBeVisible();
+  finish();
+  await expect(page.getByRole("heading", { name: ar.summary })).toBeVisible();
+  await expect(page.locator(".tender-heading-actions")).toContainText(ar.ready);
+  expect(state.analyzePosts).toBe(1);
+});
+
+test("a quota failure reconciles the dashboard and can be retried after reopening the tender", async ({
+  page,
+}) => {
+  const state = makeFixture();
+  let finish!: () => void;
+  state.analysisGate = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  state.analysisErrorCode = "AI_RATE_LIMITED";
+  await installFixture(page, state);
+  await page.goto("/");
+  await page.getByRole("button", { name: en.useSample }).click();
+  await expect(
+    page.getByText(en.processingEstimate, { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: en.backDashboard }).click();
+  finish();
+  await expect(page.getByRole("table")).toContainText(en.failed);
+  await page
+    .getByRole("table")
+    .getByRole("link", {
+      name: "Municipal digital services platform",
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: en.analysisFailedTitle }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".processing-panel").getByRole("alert"),
+  ).toContainText("request or quota limit");
+  expect(state.analyzePosts).toBe(1);
+  await page.getByRole("button", { name: en.language }).click();
+  await expect(
+    page.locator(".processing-panel").getByRole("alert"),
+  ).toContainText("الحصة المخصصة");
+  state.analysisErrorCode = null;
+  state.analysisGate = null;
+  await page.getByRole("button", { name: ar.retryAnalysis }).click();
+  await expect(page.getByRole("heading", { name: ar.summary })).toBeVisible();
+  await expect(page.locator(".processing-error")).toHaveCount(0);
+  expect(state.analyzePosts).toBe(2);
+});
+
 test("the dashboard marks a checklist complete only when every requirement is complete", async ({
   page,
 }) => {
@@ -175,7 +313,11 @@ test("a tender with no extracted obligations never reports 100 percent complete"
   await expect(page.getByText("100%", { exact: true })).not.toBeVisible();
   await expect(page.getByRole("checkbox")).toHaveCount(0);
   await page.goto("/");
-  await expect(page.locator(".metric-readiness strong")).toHaveText("—");
+  await expect(
+    page
+      .getByRole("region", { name: en.dashboardEyebrow, exact: true })
+      .locator(".metric-readiness strong"),
+  ).toHaveText("—");
   await expect(page.locator(".readiness-gauge")).toHaveCount(0);
   await expect(page.getByText("100%", { exact: true })).not.toBeVisible();
 });

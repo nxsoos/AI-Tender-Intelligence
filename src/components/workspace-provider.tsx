@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -12,6 +13,10 @@ import { authenticatedFetch } from "@/lib/client";
 import type { AppConfig, Tender } from "@/lib/types";
 import { dictionaries, type Locale, type TranslationKey } from "@/lib/i18n";
 
+type AnalysisRequestState = {
+  pending: boolean;
+  error: unknown | null;
+};
 type WorkspaceContextValue = {
   locale: Locale;
   setLocale: (value: Locale) => void;
@@ -21,6 +26,8 @@ type WorkspaceContextValue = {
   loading: boolean;
   loadError: string | null;
   reload: () => Promise<void>;
+  analysisRequests: Record<string, AnalysisRequestState>;
+  startAnalysis: (tender: Tender) => Promise<void>;
   uploadOpen: boolean;
   setUploadOpen: (open: boolean) => void;
 };
@@ -85,8 +92,8 @@ export function errorText(
       ar: "تم إرسال عدة طلبات. انتظر قليلًا ثم حاول مجددًا.",
     },
     AI_RATE_LIMITED: {
-      en: "The analysis service is busy. Please wait a moment and retry.",
-      ar: "خدمة التحليل مشغولة. انتظر قليلًا ثم أعد المحاولة.",
+      en: "Gemini's request or quota limit was reached. Your document is saved. Try again later; if this continues, check the project's Gemini quota.",
+      ar: "تم بلوغ حد الطلبات أو الحصة المخصصة لخدمة Gemini. مستندك محفوظ. حاول لاحقًا، وإذا استمرت المشكلة فتحقق من حصة Gemini للمشروع.",
     },
     AI_TIMEOUT: {
       en: "The analysis took too long. Your document is saved; please retry.",
@@ -169,6 +176,90 @@ export function WorkspaceProvider({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [analysisRequests, setAnalysisRequests] = useState<
+    Record<string, AnalysisRequestState>
+  >({});
+  const inFlight = useRef(new Map<string, Promise<void>>());
+  const tenderRevision = useRef(0);
+  // A request started before an analysis completes must not restore an older
+  // Uploaded snapshot over the terminal result returned by that analysis.
+  const mergeTenders = useCallback((incoming: Tender[], replace = false) => {
+    if (!replace) tenderRevision.current++;
+    setTenders((current) => {
+      const previous = new Map(current.map((tender) => [tender.id, tender]));
+      const merged = incoming.map((tender) => {
+        const known = previous.get(tender.id);
+        if (!known) return tender;
+        const older =
+          Date.parse(tender.updated_at) < Date.parse(known.updated_at);
+        const lostResult =
+          tender.updated_at === known.updated_at &&
+          known.status === "ready" &&
+          tender.status !== "ready";
+        return older || lostResult ? known : tender;
+      });
+      if (replace) return merged;
+      const ids = new Set(incoming.map((tender) => tender.id));
+      return [...current.filter((tender) => !ids.has(tender.id)), ...merged];
+    });
+  }, []);
+  const refreshTenders = useCallback(async () => {
+    const revision = tenderRevision.current;
+    const data = await authenticatedFetch<{ tenders: Tender[] }>(
+      "/api/tenders",
+    );
+    if (revision !== tenderRevision.current) return;
+    mergeTenders(data.tenders, true);
+  }, [mergeTenders]);
+  const startAnalysis = useCallback(
+    (tender: Tender): Promise<void> => {
+      const existing = inFlight.current.get(tender.id);
+      if (existing) return existing;
+      mergeTenders([tender]);
+      setAnalysisRequests((current) => ({
+        ...current,
+        [tender.id]: { pending: true, error: null },
+      }));
+      // Install the promise before starting network work, including auth, so
+      // route remounts and repeated clicks join the same operation.
+      const operation = Promise.resolve().then(async () => {
+        try {
+          const result = await authenticatedFetch<{ tender: Tender }>(
+            `/api/tenders/${tender.id}/analyze`,
+            { method: "POST" },
+          );
+          mergeTenders([result.tender]);
+          setAnalysisRequests((current) => ({
+            ...current,
+            [tender.id]: { pending: false, error: null },
+          }));
+        } catch (error) {
+          setAnalysisRequests((current) => ({
+            ...current,
+            [tender.id]: { pending: false, error },
+          }));
+        } finally {
+          inFlight.current.delete(tender.id);
+          // Refresh failures as well as successes, even if the detail page was
+          // unmounted. This is client-side reconciliation, not a background job.
+          void refreshTenders().catch(() => undefined);
+        }
+      });
+      inFlight.current.set(tender.id, operation);
+      return operation;
+    },
+    [mergeTenders, refreshTenders],
+  );
+  const analysisPending = Object.values(analysisRequests).some(
+    (item) => item.pending,
+  );
+  useEffect(() => {
+    if (!analysisPending) return;
+    const timer = window.setInterval(() => {
+      void refreshTenders().catch(() => undefined);
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [analysisPending, refreshTenders]);
   useEffect(() => {
     document.documentElement.lang = locale;
     document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
@@ -190,20 +281,16 @@ export function WorkspaceProvider({
       setLoadError(null);
       setConfig(settings);
       if (settings.supabaseConfigured) {
-        const data = await authenticatedFetch<{ tenders: Tender[] }>(
-          "/api/tenders",
-        );
-        setTenders(data.tenders);
+        await refreshTenders();
       }
     } catch (error) {
       setLoadError(errorText(error, locale));
     } finally {
       setLoading(false);
     }
-  }, [locale]);
+  }, [locale, refreshTenders]);
   // Initial network loading updates state only after an awaited response; this synchronizes an external service.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void reload();
   }, [reload]);
   return (
@@ -213,10 +300,27 @@ export function WorkspaceProvider({
         setLocale,
         t: (key) => dictionaries[locale][key],
         config,
-        tenders,
+        tenders: tenders.map((tender) => {
+          const request = analysisRequests[tender.id];
+          if (request?.pending && tender.status !== "ready") {
+            return {
+              ...tender,
+              status:
+                tender.status === "analyzing" ? "analyzing" : "extracting",
+            };
+          }
+          // A rejected request may fail before the server claims a lease;
+          // keep that local failure visible instead of reverting to Uploaded.
+          if (request?.error && tender.status === "uploaded") {
+            return { ...tender, status: "failed" };
+          }
+          return tender;
+        }),
         loading,
         loadError,
         reload,
+        analysisRequests,
+        startAnalysis,
         uploadOpen,
         setUploadOpen,
       }}

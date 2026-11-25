@@ -40,6 +40,10 @@ const en = {
   uploadFailed: "The PDF could not be uploaded. Please try again.",
   tryAgain: "Try again",
   retryAnalysis: "Retry analysis",
+  analyzeDocument: "Analyze document",
+  awaitingAnalysisTitle: "Your document is ready to analyze",
+  awaitingAnalysisDescription:
+    "Your PDF is saved. Start analysis to extract requirements and review risks.",
   processingTitle: "Reading your tender",
   processingDescription:
     "We are connecting each requirement to its source so you can review the evidence.",
@@ -66,6 +70,8 @@ const en = {
   noData: "No tenders yet",
   noDataHint: "Upload your first tender to see real progress here.",
   noRequirements: "No requirements found",
+  notAnalyzed: "Not analyzed yet",
+  analysisIncomplete: "Analysis incomplete",
   notFound: "Not found",
   needsReview: "Needs review",
   noDeadline: "Deadline not found",
@@ -299,6 +305,10 @@ const ar: Dictionary = {
   uploadFailed: "تعذر رفع ملف PDF. يرجى المحاولة مرة أخرى.",
   tryAgain: "إعادة المحاولة",
   retryAnalysis: "إعادة التحليل",
+  analyzeDocument: "تحليل المستند",
+  awaitingAnalysisTitle: "المستند جاهز للتحليل",
+  awaitingAnalysisDescription:
+    "ملف PDF محفوظ. ابدأ التحليل لاستخراج المتطلبات ومراجعة المخاطر.",
   processingTitle: "جارٍ قراءة المنافسة",
   processingDescription: "نربط كل متطلب بمصدره حتى تتمكن من مراجعة الأدلة.",
   processingEstimate:
@@ -324,6 +334,8 @@ const ar: Dictionary = {
   noData: "لا توجد منافسات بعد",
   noDataHint: "ارفع منافستك الأولى لمتابعة التقدم الفعلي هنا.",
   noRequirements: "لم تُستخرج متطلبات",
+  notAnalyzed: "لم يُحلل بعد",
+  analysisIncomplete: "التحليل غير مكتمل",
   notFound: "غير مذكور",
   needsReview: "يحتاج إلى مراجعة",
   noDeadline: "لم يُعثر على آخر موعد للتقديم",

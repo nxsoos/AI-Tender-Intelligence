@@ -45,8 +45,15 @@ export async function uploadTender(file: File, onStep: (step: string) => void) {
 }
 
 export function UploadDialog() {
-  const { uploadOpen, setUploadOpen, t, locale, config, reload } =
-    useWorkspace();
+  const {
+    uploadOpen,
+    setUploadOpen,
+    t,
+    locale,
+    config,
+    reload,
+    startAnalysis,
+  } = useWorkspace();
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<string | null>(null);
@@ -74,6 +81,7 @@ export function UploadDialog() {
     setError(null);
     try {
       const tender = await uploadTender(file, setStep);
+      void startAnalysis(tender);
       setUploadOpen(false);
       setFile(null);
       setStep(null);
